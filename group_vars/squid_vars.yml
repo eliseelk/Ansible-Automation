@@ -1,0 +1,147 @@
+---
+# Domain to authenticate
+domain: [domain name]
+
+# Join Satellite (optional)
+#join_satellite: set -o pipefail && curl -sS 'https://[satellite_baseurl]/register?activation_keys=[activation_key]&force=true&ignore_subman_errors=false&location_id=2&organization_id=1&update_packages=false' -H 'Authorization:[auth] |bash
+
+# IPA Authentication
+ipa_admin_principal: "admin@{{ domain | upper }}"
+ipa_server: [ipa_server_fqdn]
+squid_bind_username: [bind_username_squid]
+
+# Cache Peer
+next_proxy:
+  - ip_address: []
+    port: [3128] #squid proxy port number
+    name: []
+    weight: 0
+
+# Kerberos Authentication
+krb_auth:
+  - squid_krb_auth_realm: "{{ domain | upper }}"
+    squid_krb_auth_children: 10
+    squid_krb_auth_keep_alive: "on"
+  
+# LDAP Authentication
+ldap_auth:
+  -  squid_ldap_auth_basic_realm: [ldap_proxy_name]
+     squid_ldap_auth_basic_children: 10
+     search_base: cn=[],cn=[],dc=[],dc=[],dc=[],dc=[],dc=[]
+     bind_account: uid={{ squid_bind_username }},cn=[],cn=[],dc=[],dc=[],dc=[],dc=[],dc=[]
+     server_hostname: "ldaps://{{ ipa_server }}:[port_number]/"
+
+# Route to [other environments]
+squid_routing:
+  - name: [environment1]
+    []_domains: [domains space separated]
+    []_ip: []
+    domain_group: []
+    ip_group: []
+
+  - name: [environment2]
+    []_domains: [domains space separated]
+    []_ip: []
+    domain_group: []
+    ip_group: []
+
+# User agent filters
+squid_user_agents:
+  - name: vscode
+    user_agent_filter: ^"VSCode"
+
+# Port Access
+squid_ssl_ports: [list ports space separated]
+squid_safe_ports: [list ports space separated]
+
+# Source ACL 
+# devices that don't need any authentication as they authenticate locally
+squid_noauth_lists:
+  - source_ips:
+      - [ip address]
+      - [ip address]
+
+# [src_dst_domain]
+squid_[src_dst_domain]:
+  - type: src src
+    location: [ip_address]
+  - type: dst dstdomain
+    location: [domain]
+
+# Sites unauth_allowed devices are allowed to visit
+squid_unauth_lists:
+  - name: [unauth_device_name]
+    source_ips:
+      - [ip address]
+      - [ip address]
+
+    destination_domains:
+      - [domain]
+      - [domain]
+
+    destination_ips: []
+
+  - name: []
+    source_ips:
+      - [ip_address]
+
+    destination_domains:
+      - [domain]
+
+    destination_ips: []
+
+  - name: []
+    source_ips:
+      - [ip_address]
+
+    destination_domains:
+      - [domain]
+
+    destination_ips: []
+
+  - name: []
+    source_ips:
+      - [ip_address]
+
+    destination_domains:
+      - [domain]
+
+    destination_ips:
+      - [ip_address]
+
+  - name: []
+    source_ips:
+      - [ip_address]
+
+    destination_domains:
+      - [domain]
+
+    destination_ips: []
+
+  - name: []
+    source_ips:
+      - [ip_address]
+
+    destination_domains:
+      - [domain]
+
+    destination_ips: []
+
+  - name: []
+    source_ips:
+      - [ip_address]
+    destination_domains:
+      - [domain]
+
+# Sites Blocked for Everyone
+squid_blocked_sites:
+  - name: blocked_sites
+    destination_domains: 
+      - [domain]
+      - [domain]
+
+  - name: blocked_sites_file # add file containing list of blocked sites here, like "{{ file_name }}"
+    destination_domains: []
+
+
+

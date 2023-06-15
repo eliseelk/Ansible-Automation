@@ -1,0 +1,47 @@
+---
+# defaults file for squid-automation-role/
+# These variables are specific to Squid proxies
+parameters:
+  - name: http_port
+    value: 3128
+  - name: max_filedescriptors
+    value: 8192
+  - name: cache_mem
+    value: 4096 MB
+  - name: maximum_object_size_in_memory
+    value: 10 MB
+  - name: memory_cache_mode
+    value: always
+  - name: pipeline_prefetch
+    value: "on"
+  - name: shutdown_lifetime
+    value: 1 second
+
+# Coredumps directory
+squid_coredump_dir: /var/log/squid/
+
+# Logging
+access_log_locations:
+  - syslog:local5.info
+  - /var/log/squid/access.log
+cache_log_locations:
+  - /var/log/squid/cache.log
+
+# Refresh Patterns
+refresh_patterns:
+  - regex: ^ftp
+    min: 1440
+    percent: 20%
+    max: 10080
+  - regex: ^gopher
+    min: 1440
+    percent: 0%
+    max: 1440
+  - regex: -i (/cgi-bin/|\?)python3-policycoreutils.noarch
+    min: 0
+    percent: 0%
+    max: 0
+  - regex: .
+    min: 0
+    percent: 20%
+    max: 4320

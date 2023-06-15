@@ -1,0 +1,97 @@
+---
+# tasks file for squid-automation-role/
+- name: "Join Satellite"
+  ansible.builtin.shell:
+    cmd: "{{ join_satellite | default ('omit') }}"
+  when: join_satellite is defined
+
+- name: "Ensure Squid Is Installed"
+  ansible.builtin.yum:
+    name: squid
+    state: present
+   
+- name: "Squid Service Is Started And Enabled"
+  ansible.builtin.service:
+    name: squid
+    state: started
+    enabled: true
+
+- name: "Firewall Allow Squid"
+  ansible.posix.firewalld:
+    port: 3128/tcp
+    state: enabled
+    immediate: true
+    permanent: true
+  notify:
+    - "reload firewalld"
+
+- name: "Squid Configuration With Template"
+  ansible.builtin.template:
+    src: squid_template.j2
+    dest: /etc/squid/squid.conf
+  notify:
+  - "restart squid"
+
+- name: "Join IPA"
+  ansible.builtin.include_role:
+    name: redhat.rhel_idm.ipaclient
+  vars:
+    ipaadmin_principal: "{{ ipa_admin_principal }}"
+    ipaadmin_password: "{{ ipa_admin_password }}"
+    ipaclient_ip_addresses: "{{ ansible_eth0.ipv4.address }}"
+    ipaclient_servers: "{{ ipa_server }}"
+    ipaclient_domain: "{{ domain }}"
+    ipaclient_force_join: true
+
+- name: "IPA Create services"
+  redhat.rhel_idm.ipaservice:
+    name: "HTTP/{{ ansible_fqdn }}"
+    ipaadmin_password: "{{ ipa_admin_password }}"
+
+- name: "Create Service account"
+  redhat.rhel_idm.ipauser:
+    name: "{{ squid_bind_username }}"
+    ipaadmin_password: "{{ ipa_admin_password }}"
+    state: present
+    first: Bind
+    last: Squid
+    password: "{{ bind_squid_pwd }}"
+    update_password: on_create
+  no_log: true
+  register: new_service_account
+
+- name: "Create Password File"
+  ansible.builtin.copy:
+    content: "{{ bind_squid_pwd }}"
+    dest: /etc/squid/ldap_password
+    owner: squid
+    group: squid
+    mode: "400"
+    setype: squid_conf_t
+ 
+- name: "Remove Old Keytab Files If Present"
+  ansible.builtin.file:
+    path: "/etc/squid/krb5-proxy.keytab"
+    state: absent
+  when: new_service_account.changed
+
+- name: "Check If Keytab Exists"
+  ansible.builtin.stat:
+    path: /etc/squid/krb5-proxy.keytab
+  register: keytab_exists
+
+- name: "Create Keytab"
+  ansible.builtin.shell: echo "{{ ipa_admin_password }}" | kinit "{{ ipa_admin_principal }}" ; ipa-getkeytab -k /etc/squid/krb5-proxy.keytab -p HTTP/"{{ inventory_hostname }}"
+  when: not keytab_exists.stat.exists or new_service_account.changed
+  no_log: true
+
+- name: "Keytab File Permissions"
+  ansible.builtin.file:
+    path: /etc/squid/krb5-proxy.keytab
+    owner: root
+    group: squid
+    mode: 0640
+
+- name: "Check Squid Configuration"
+  ansible.builtin.shell: squid -k check ; squid -k reconfigure
+  changed_when: false

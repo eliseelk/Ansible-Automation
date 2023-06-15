@@ -1,0 +1,156 @@
+# Squid Proxy Configuration Template File
+
+# Parameters
+{% for item in parameters %}
+{% if item.name is defined and item.value is defined %}
+{{ item.name }} {{ item.value }}
+{% endif %}
+{% endfor %}
+
+# Cache Peer For Next Proxy
+{% for item in next_proxy %}
+cache_peer {{ item.ip_address }} parent {{ item.port }} 0 no-query no-digest name={{ item.name }} round-robin weight={{ item.weight }}
+{% endfor %}
+
+# Route to [nvironments]
+{% for item in squid_routing %}
+{% if item.name is defined and item.name | length > 0 %}
+acl {{ item.domain_group }} dstdomain {{ item.[environment_name] }}
+acl {{ item.ip_group }} dst {{ item.[environment_ip] }}
+never_direct allow {{ item.domain_group }}
+never_direct allow {{ item.ip_group }}
+always_direct deny {{ item.domain_group }}
+always_direct deny {{ item.ip_group }}
+http_access allow {{ item.domain_group }} {{ item.ip_group }}
+{% endif %}
+{% endfor %}
+
+# Send Everything Else "Upstream" (to cache_peer)
+never_direct allow all
+always_direct deny all
+
+# Port Access
+
+{% if squid_ssl_ports is defined %}
+acl SSL_ports port {{ squid_ssl_ports | default('omit') }}
+{% endif %}
+
+{% if squid_safe_ports is defined %}
+acl Safe_ports port {{ squid_safe_ports | default('omit') }}
+{% endif %}
+
+acl CONNECT method CONNECT
+http_access deny !Safe_ports
+http_access deny CONNECT !SSL_ports
+
+# Only Allow cachemgr Access From localhost
+http_access allow localhost manager
+http_access deny manager
+
+# Stop Extensions User Agents
+{% for item in squid_user_agents %}
+acl ua_{{ item.name }} browser {{ item.user_agent_filter }}
+http_access deny ua_{{ item.name }}
+{% endfor %}
+
+{% if krb_auth is defined %}
+{% for item in krb_auth | default('omit') %}
+# Kerberos Authentication 
+auth_param negotiate realm {{ item.squid_krb_auth_realm }}
+auth_param negotiate program /usr/lib64/squid/negotiate_kerberos_auth -d -s HTTP/{{ inventory_hostname }}@{{ item.squid_krb_auth_realm }} -k /etc/squid/krb5-proxy.keytab
+auth_param negotiate children {{ item.squid_krb_auth_children }}
+auth_param negotiate keep_alive {{ item.squid_krb_auth_keep_alive }}
+acl krb_auth_allowed_src proxy_auth REQUIRED
+{% endfor %}{% endif %}
+
+{% if ldap_auth is defined %}
+{% for item in ldap_auth | default('omit') %}
+# LDAP Authentication
+auth_param basic realm {{ item.squid_ldap_auth_basic_realm }}
+auth_param basic children {{ item.squid_ldap_auth_basic_children }}
+auth_param basic program /usr/lib64/squid/basic_ldap_auth -b "{{ item.search_base }}" -D "{{ item.bind_account }}" -W /etc/squid/ldap_password -f "(&(objectClass=person)(uid=%s))" -H {{ item.server_hostname}}
+acl auth_allowed_src proxy_auth REQUIRED
+{% endfor %}{% endif %}
+
+# Source ACL
+# Devices that don't need any authentication as they authenticate locally
+{% for item in squid_noauth_lists %}
+{% if item.source_ips is defined %}
+acl noauth_allowed_src src {{ item.source_ips | join(' ') }}
+{% endif %}
+{% endfor %}
+
+# Devices That Don't Need To Authenticate With IPA
+{% for item in squid_unauth_lists %}
+{% if item.source_ips is defined %}
+acl unauth_allowed_src-{{ item.name }} src {{ item.source_ips | join(' ') }}
+{% endif %}
+{% endfor %}
+
+# Destination and Source ACL
+{% for item in [src_dst_domain] %}
+acl [src_dst_domain]_{{ item.type }} {{ item.location }}
+{% endfor %}
+
+# Sites unauth_allowed Devices Are Allowed To Visit
+
+{% for item in squid_unauth_lists %}
+{% if item.destination_domains is defined and item.destination_domains | length > 0 %}
+acl unauth_allowed_dst-{{ item.name }}-domain dstdomain {{  item.destination_domains | join(' ') }}
+{% endif %}
+{% endfor %}
+{% for item in squid_unauth_lists %}
+{% if item.destination_ips is defined and item.destination_ips | length > 0 %}
+acl unauth_allowed_dst-{{ item.name }}-ip dst {{  item.destination_ips | join(' ') }}
+{% endif %}
+{% endfor %}
+
+# Sites Blocked For Everyone
+{% for item in squid_blocked_sites %}
+{% if item.destination_domains is defined and item.destination_domains | length > 0 %}
+acl blocked_sites dstdomain {{ item.destination_domains | join(' ')  }}
+http_access deny blocked_sites
+{% endif %}
+{% endfor %}
+
+# Source to Destination Mapping
+http_access allow [src_dst_domain]_src [src_dst_domain]_dst
+
+# These Hosts Can Connect To These Sites
+
+{% for item in squid_unauth_lists %}
+{% if item.destination_domains is defined and item.destination_domains | length > 0 %}
+http_access allow unauth_allowed_src-{{ item.name }} unauth_allowed_dst-{{ item.name }}-domain
+{% endif %}
+{% if item.destination_ips is defined and item.destination_ips | length > 0 %}
+http_access allow unauth_allowed_src-{{ item.name }} unauth_allowed_dst-{{ item.name }}-ip
+{% endif %}
+{% endfor %}
+
+# These hosts can connect anywhere not blocked
+http_access allow noauth_allowed_src
+http_access allow krb_auth_allowed_src
+http_access allow auth_allowed_src
+
+# If you have made it this far - sorry...
+http_access deny all
+
+# Coredumps
+coredump_dir {{ squid_coredump_dir }}
+
+# Logging
+{% for item in access_log_locations %}
+access_log {{ item }}
+{% endfor %}
+
+{% for item in cache_log_locations %}
+cache_log {{ item }}
+{% endfor %}
+
+logformat access_log squid 
+logformat cache_log squid
+
+# Refresh Patterns
+{% for item in refresh_patterns %}
+refresh_pattern {{ item.regex }} {{ item.min }} {{ item.percent }} {{ item.max }}
+{% endfor %}

@@ -1,0 +1,6 @@
+---
+- name: Squid configuration file to test the role
+  hosts: [hosts]
+  become: true
+  roles:
+    - squid-automation-role

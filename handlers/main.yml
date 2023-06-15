@@ -1,0 +1,11 @@
+---
+# handlers file for squid-automation-role/
+- name: "reload firewalld"
+  ansible.builtin.service:
+    name: firewalld
+    state: reloaded
+    
+- name: "restart squid"
+  ansible.builtin.service:
+    name: squid
+    state: restarted
