@@ -34,13 +34,13 @@ ldap_auth:
 # Route to [other environments]
 squid_routing:
   - name: [environment1]
-    []_domains: [domains space separated]
+    []_domains: [] # write domains space separated
     []_ip: []
     domain_group: []
     ip_group: []
 
   - name: [environment2]
-    []_domains: [domains space separated]
+    []_domains: [] # write domains space separated
     []_ip: []
     domain_group: []
     ip_group: []
@@ -62,7 +62,7 @@ squid_noauth_lists:
       - [ip address]
 
 # [src_dst_domain]
-squid_[src_dst_domain]:
+squid_src_dst_domain:
   - type: src src
     location: [ip_address]
   - type: dst dstdomain
