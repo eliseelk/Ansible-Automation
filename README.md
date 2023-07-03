@@ -124,7 +124,9 @@ Example Playbook
 Example playbook of how to use the role, as also seen in tests/test.yml.
 
 - hosts: host_to_become_squid_proxy
+  
   become: true
+  
   roles:
      - squid
 
