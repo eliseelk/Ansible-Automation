@@ -1,4 +1,4 @@
-Squid Proxy Configuration ReadMe File
+Squid Proxy Configuration Role ReadMe
 =========
 ### Description
 This role can be used to configure a Squid proxy, a caching and forwarding http and ftp proxy. The inventory file must identify the host to become the Squid proxy. The tasks/main.yml will join Satellite (if applicable), check that Squid is installed, (and install it if not), start and enable Squid, allow Squid through the firewall, create the Squid configuration file on the host (/etc/squid/squid.conf) using the templates/squid_template.j2 file, join IPA using redhat.rhel_idm.ipaclient role, create IPA services and service account, create keytab files and password file, check Squid configuration and restart Squid. The proxy includes Kerberos and LDAP authentication. Handlers are stored in the handlers/main.yml file, to reload firewalld and restart the squid service after configuration.
