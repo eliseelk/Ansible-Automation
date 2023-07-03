@@ -33,6 +33,7 @@ Example Playbook
 
 
     - hosts: capsule
+      become: true
       roles:
          - install_satellite_capsule
 
