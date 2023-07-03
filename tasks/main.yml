@@ -66,7 +66,7 @@
     dest: /etc/squid/ldap_password
     owner: squid
     group: squid
-    mode: "400"
+    mode: '0400'
     setype: squid_conf_t
  
 - name: "Remove Old Keytab Files If Present"
