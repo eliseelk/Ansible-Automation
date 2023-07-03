@@ -90,7 +90,7 @@
     path: /etc/squid/krb5-proxy.keytab
     owner: root
     group: squid
-    mode: 0640
+    mode: '0640'
 
 - name: "Check Squid Configuration"
   ansible.builtin.shell: squid -k check ; squid -k reconfigure
