@@ -1,0 +1,83 @@
+---
+# Defaults file for Satellite Capsule server variables
+
+# Satellite server credentials and details
+satellite_organisation: []
+satellite_lifecycles: []
+satellite_location: []
+satellite_server_hostname: [satellite fqdn]
+satellite_curl_cmd: "curl -sS '[]' | bash"
+
+# Capsule server credentials and details
+capsule_hostname: "{{ inventory_hostname }}"
+capsule_cert_dir: [capsule name]
+capsule_service_name: [satellite capsule service name]
+capsule_baseurl: []
+
+# Storage variables
+pulp_disk: [] # 500g requirement
+pgsl_disk: [] # 20g requirement
+
+# Firewall ports for incoming and outgoing traffic
+capsule_firewall_ports: 
+  - 80/tcp
+  - 443/tcp
+  - 8443/tcp
+  - 9090/tcp
+
+# Hashicorp vault variables
+ansible_hashi_vault_validate_certs: false
+ansible_hashi_vault_engine_mount_point: [mount point]
+vault_address: [vault web address]
+hashi_vault_pkg: https://[]x86_64.rpm
+
+vault_approle_list:
+  - name: "{{ inventory_hostname }}"
+    domains: "{{ domain }}"
+    allow_subdomains: true
+    type: host
+    usage:
+      - DigitalSignature
+      - NonRepudiation
+      - KeyEncipherment
+      - DataEncipherment
+    extended_usage:
+      - ServerAuth
+      - ClientAuth
+      - CodeSigning
+      - EmailProtection
+
+vault_cert_list:
+  - common_name: "{{ inventory_hostname }}"
+    subject_alternate_names:
+      - "{{ inventory_hostname }}"
+    ips: []
+    hashicorp_path: "pki/issue/{{ ansible_fqdn }}"
+    hashicorp_ca_path: "pki/cert/ca"
+    ttl_hours: 720 # 30 days
+
+    cert_file:
+      path: [vault_path].pem
+      include_ca: true
+      user: vault
+      group: vault
+      mode: '0644'
+      command: /usr/local/sbin/vault-update-satellite-certs
+      command_timeout_seconds: 900
+      wait_seconds: 900
+    cert_key:
+      path: [vault_path].pem
+      user: vault
+      group: vault
+      mode: '0600'
+    ca:
+      - path: [vault_path].pem
+        user: vault
+        group: vault
+        mode: '0644'
+        command: /usr/local/sbin/vault-update-ca
+        command_timeout_seconds: 30
+
+vault_executable_paths:
+  - /usr/bin/update-ca-trust
+  - /usr/local/sbin/update-satellite-certs

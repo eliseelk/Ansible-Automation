@@ -1,0 +1,6 @@
+---
+# handlers file for install_satellite_capsule
+- name: "Reload firewalld"
+  ansible.builtin.service:
+    name: firewalld
+    state: reloaded

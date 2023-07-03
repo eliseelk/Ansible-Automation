@@ -1,0 +1,220 @@
+---
+- name: "Register to Satellite repos"
+  ansible.builtin.shell: "{{ satellite_curl_cmd }}"
+
+- name: "Ensure ansible is installed"
+  ansible.builtin.dnf:
+      name: ansible-core
+      state: present
+
+- name: "Ensure CPUs are greater than 4"
+  ansible.builtin.fail:
+    msg: "Insufficent CPU's, expecting >= 4"
+  when: ansible_processor_vcpus < 4
+
+- name: "Ensure total memory is greater than 20GB"
+  ansible.builtin.fail:
+    msg: "Insufficent RAM, expecting >= 20G"
+  when: ansible_memtotal_mb < 20000
+
+- name: "Set umask to 022 as per system requirements"
+  ansible.builtin.lineinfile:
+    path: /etc/init.d/functions
+    regexp: "^umask\\s+[0-7][0-7][0-7]"
+    line: umask 022
+
+- name: "Get info on boot device"
+  ansible.builtin.parted:
+    device: /dev/sdb
+    unit: GiB
+  register: sdb_info
+
+# NOTE: check current disk storage BEFORE running play to select disks to use
+- name: Setup pulp storage
+  ansible.builtin.include_role:
+    name: redhat.rhel_system_roles.storage
+  vars:
+    storage_pools:
+      - name: vg_pulp
+        disks:
+          - "{{ pulp_disk }}"
+        volumes:
+          - name: lv_pulp
+            size: "500g"
+            fs_type: xfs
+            mount_point: "/var/lib/pulp"
+            mount_options: noatime,nodev,noexec,nosuid
+      - name: vg_pgsl
+        disks:
+          - "{{ pgsl_disk }}"
+        volumes:
+          - name: lv_pgsl
+            size: "20g"
+            fs_type: xfs
+            mount_point: "/var/lib/pgsl"
+            mount_options: noatime,nodev,noexec,nosuid
+
+- name: "Permanently add Capsule service to firewall"
+  ansible.posix.firewalld:
+    service: "{{ capsule_service_name }}"
+    permanent: yes
+    state: enabled
+
+- name: "Ensure specified ports are open in firewall"
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ capsule_firewall_ports }}"
+  notify: "Reload firewalld"
+
+- name: "Enable all repos, content view is used to selectively manage repos"
+  community.general.rhsm_repository:
+    name: '*'
+    state: enabled
+
+- name: "Enable satellite-capsule:el8 module"
+  ansible.builtin.command:
+    cmd: dnf module enable -y satellite-capsule:el8
+
+- name: "Ensure host is up to date"
+  ansible.builtin.dnf:
+    name: "*"
+    state: latest
+
+- name: "Ensure satellite-installer is installed"
+  ansible.builtin.dnf:
+      name: satellite-installer
+      state: present
+
+- name: "Create certificate directory on Satellite server"
+  ansible.builtin.file:
+    state: directory
+    path: /root/capsule_cert/"{{ capsule_cert_dir }}"
+  delegate_to: "{{ satellite_server_hostname }}"
+
+- name: "Validate SSL certs on Satelllite server"
+  ansible.builtin.command:
+    cmd: "katello-certs-check -t capsule -c /etc/vault.d/outputs/{{ capsule_hostname }}_cert.pem -k /etc/vault.d/outputs/{{ capsule_hostname }}_key.pem  -b /etc/vault.d/outputs/ca_vault_pki.pem"
+  delegate_to: "{{ satellite_server_hostname }}"
+
+- name: "Generate capsule certificate on Satellite server"
+  ansible.builtin.command:
+    cmd: "capsule-certs-generate --foreman-proxy-fqdn {{ capsule_hostname }} --certs-tar /root/capsule_cert/{{ capsule_hostname }}-certs.tar --server-cert /etc/vault.d/outputs/{{ capsule_hostname }}_cert.pem --server-key /etc/vault.d/outputs/{{ capsule_hostname }}_key.pem --server-ca-cert /etc/vault.d/outputs/ca_vault_pki.pem"
+  delegate_to: "{{ satellite_server_hostname }}"
+  register: sat_cert_output
+
+- name: "Create directory on Capsule to store Satellite ouputs"
+  ansible.builtin.file:
+    path: /home/[user]/outputs/
+    state: directory
+    mode: '0660'
+
+- name: "Create files to store outputs on capsule"
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: touch
+    mode: '0660'
+  loop:
+    - /home/[user]/outputs/consumer_key.txt
+    - /home/[user]/outputs/consumer_secret.txt
+
+- name: "Copy Satellite command output to Capsule files"
+  ansible.builtin.copy:
+    content: "{{ sat_cert_output.stdout }}"
+    dest: "{{ item }}"
+  loop:
+    - /home/[user]/outputs/consumer_secret.txt
+    - /home/[user]/outputs/consumer_key.txt
+
+- name: "Filter for consumer secret from satellite output on Capsule"
+  ansible.builtin.shell: cat /home/[user]/outputs/consumer_secret.txt | grep consumer-secret* | awk -F'"' '{print $2}'
+  register: consumer_secret
+  become: true
+  changed_when: false
+
+- name: "Filter for consumer key from satellite output on Capsule"
+  ansible.builtin.shell: cat /home/[user]/outputs/consumer_key.txt | grep consumer-key* | awk -F'"' '{print $2}'
+  register: consumer_key
+  become: true
+  changed_when: false
+
+- name: "Create certificate directory on Capsule"
+  ansible.builtin.file:
+    state: directory
+    path: "/root/capsule_cert/"
+    mode: '0600'
+    owner: root
+    group: root
+
+- name: "Copy certificate archive file from Satellite to localhost"
+  ansible.builtin.fetch:
+    src: "/root/capsule_cert/{{ capsule_hostname }}-certs.tar" 
+    dest: "/tmp/ansible/certs/"
+    flat: true
+  delegate_to: "{{ satellite_server_hostname }}"
+ 
+- name: "Copy certificate archive file from localhost to Capsule"
+  ansible.builtin.copy:
+    src: "/tmp/ansible/certs/{{ capsule_hostname }}-certs.tar"
+    dest: "/root/capsule_cert/"
+    mode: '0600'
+    owner: root
+    group: root
+    
+- name: "Delete Satellite certificate archive file on localhost"
+  ansible.builtin.file:
+    path: "/tmp/ansible/certs/{{ capsule_hostname }}-certs.tar" 
+    state: absent
+  tags:
+    - always
+  delegate_to: localhost
+  become: no
+
+- name: "Delete Satellite certificate archive directory on localhost"
+  ansible.builtin.file:
+    path: "/tmp/ansible/certs" 
+    state: absent
+  tags:
+    - always
+  delegate_to: localhost
+  become: no
+
+- name: "Temporarily turn fapolicyd off"
+  ansible.builtin.service:
+    name: fapolicyd
+    state: stopped
+
+- name: "Deploy certificate to Capsule"
+  ansible.builtin.shell: "satellite-installer --scenario capsule --certs-tar-file /root/capsule_cert/{{ capsule_hostname }}-certs.tar --foreman-proxy-register-in-foreman true --foreman-proxy-foreman-base-url https://{{ satellite_server_hostname }} --foreman-proxy-trusted-hosts {{ satellite_server_hostname }} --foreman-proxy-trusted-hosts {{ capsule_hostname }} --foreman-proxy-oauth-consumer-key {{ consumer_key.stdout }} --foreman-proxy-oauth-consumer-secret {{ consumer_secret.stdout }} --puppet-server-foreman-url https://{{ satellite_server_hostname }}"
+
+- name: "Sync Satellite server content view to capsule"
+  ansible.builtin.command:
+    cmd: "hammer capsule content synchronize --name {{ capsule_hostname }}"
+  delegate_to: "{{ satellite_server_hostname }}"
+
+- name: "Add lifecycle environments from Satellite to capsule"
+  ansible.builtin.command:
+    cmd: "hammer capsule content add-lifecycle-environment --lifecycle-environment {{ satellite_lifecycles }} --organization {{ satellite_organisation }} --name {{ capsule_hostname }}" 
+  delegate_to: "{{ satellite_server_hostname }}"
+# below tasks takes really long...
+- name: "Sync lifecycle environments from Satellite to capsule"
+  ansible.builtin.command:
+    cmd: "hammer capsule content synchronize --lifecycle-environment {{ satellite_lifecycles }} --organization {{ satellite_organisation }} --name {{ capsule_hostname }}"
+  delegate_to: "{{ satellite_server_hostname }}"
+
+- name: "Set Capsule download policy"
+  ansible.builtin.command:
+    cmd: "hammer capsule update --download-policy immediate --name {{ capsule_hostname }}"
+  delegate_to: "{{ satellite_server_hostname }}"
+
+- name: "Add Capsule to Satellite location"
+  ansible.builtin.command:
+    cmd: "hammer capsule update --name {{ capsule_hostname }} --locations {{ satellite_location }}"
+  delegate_to: "{{ satellite_server_hostname }}"
+
+- name: "Turn fapolicyd back on"
+  ansible.builtin.service:
+    name: fapolicyd
+    state: started
